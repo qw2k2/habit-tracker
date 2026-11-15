@@ -29,7 +29,7 @@ public final class ConsoleApplication {
 
   public void run() {
     running = true;
-    console.println("ТРЕКЕР ПРИВЫЧЕК — часть 1. Данные хранятся до выхода.");
+    console.println("ТРЕКЕР ПРИВЫЧЕК — часть 2. Данные сохраняются в PostgreSQL.");
     while (running) {
       try {
         console.println(SEPARATOR);
@@ -42,10 +42,11 @@ public final class ConsoleApplication {
         }
       } catch (EndOfInputException exception) {
         running = false;
-      } catch (IllegalArgumentException exception) {
+      } catch (IllegalArgumentException
+          | ru.study.habits.repository.jdbc.StorageException exception) {
         console.println("Ошибка: " + exception.getMessage());
       }
     }
-    console.println("Работа завершена. Данные из памяти удалены.");
+    console.println("Работа завершена.");
   }
 }
