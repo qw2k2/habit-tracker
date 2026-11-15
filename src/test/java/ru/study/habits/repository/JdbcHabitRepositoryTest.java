@@ -12,8 +12,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import ru.study.habits.domain.Habit;
 import ru.study.habits.domain.HabitDetails;
 import ru.study.habits.repository.jdbc.Connections;
@@ -23,8 +24,9 @@ import ru.study.habits.repository.jdbc.StorageException;
 
 @EnabledIfEnvironmentVariable(named = "TEST_DB_URL", matches = ".+")
 class JdbcHabitRepositoryTest {
-  @Test
-  void persistsUpdatesRollsBackAndCascades() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void persistsUpdatesRollsBackAndCascades(boolean legacy) throws Exception {
     String url = System.getenv("TEST_DB_URL");
     String user = System.getenv("DB_USER");
     String password = System.getenv("DB_PASSWORD");
@@ -39,9 +41,32 @@ class JdbcHabitRepositoryTest {
               connection.setSchema(schema);
               return connection;
             };
+        if (legacy) {
+          try (Connection previous = connections.open();
+              Statement oldDdl = previous.createStatement();
+              var input =
+                  getClass().getResourceAsStream("/db/migration/V1__create_habit_tables.sql")) {
+            oldDdl.execute(
+                new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            oldDdl.execute(
+                "INSERT INTO habits(id,name,category,weekly_target) VALUES ('00000000-0000-0000-0000-000000000001','Existing','Legacy',1)");
+          }
+        }
         Database.initialize(connections);
         Database.initialize(connections);
         JdbcHabitRepository repository = new JdbcHabitRepository(connections);
+        if (legacy) {
+          assertEquals("Existing", repository.findAll().get(0).getDetails().name());
+          repository.deleteById(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        }
+        try (var history =
+            ddl.executeQuery(
+                "SELECT count(*) FROM "
+                    + schema
+                    + ".flyway_schema_history WHERE type='SQL' AND success")) {
+          history.next();
+          assertEquals(2, history.getInt(1));
+        }
         Habit habit =
             new Habit(
                 UUID.randomUUID(),
@@ -80,6 +105,8 @@ class JdbcHabitRepositoryTest {
           rows.next();
           assertEquals(0, rows.getInt(1));
         }
+        ddl.execute("UPDATE " + schema + ".flyway_schema_history SET checksum=0 WHERE version='1'");
+        assertThrows(StorageException.class, () -> Database.initialize(connections));
       } finally {
         ddl.execute("DROP SCHEMA " + schema + " CASCADE");
       }
