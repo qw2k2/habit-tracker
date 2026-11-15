@@ -1,0 +1,1 @@
+CREATE INDEX habit_completions_completed_on_idx ON habit_completions(completed_on);
